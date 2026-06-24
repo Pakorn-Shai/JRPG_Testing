@@ -8,7 +8,8 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets" / "resources" / "home"
 OUT = ROOT / "output" / "home_tilemap_preview.png"
-CANVAS = (1280, 720)
+VIEW_OUT = ROOT / "output" / "home_viewport_preview.png"
+CANVAS = (2304, 720)
 
 
 def load(name: str, size: tuple[int, int]) -> Image.Image:
@@ -40,53 +41,58 @@ def shadow(width: int, height: int) -> Image.Image:
 def main() -> None:
     canvas = Image.new("RGBA", CANVAS, (19, 13, 11, 255))
 
-    floor_frames = [load("floor_stone_a", (130, 130)), load("floor_stone_b", (130, 130))]
+    floor_frames = [load("floor_wood_a", (130, 130)), load("floor_wood_b", (130, 130))]
     for row in range(4):
-        for column in range(10):
-            place(canvas, floor_frames[(column + row * 3) % 2], -576 + column * 128, -270 + row * 128)
+        for column in range(18):
+            place(canvas, floor_frames[(column + row * 3) % 2], -1088 + column * 128, -270 + row * 128)
 
-    floor_tint = Image.new("RGBA", (1280, 512), (91, 48, 23, 28))
+    floor_tint = Image.new("RGBA", (2304, 512), (62, 35, 24, 76))
     place(canvas, floor_tint, 0, -78)
 
     wall = load("wall_plaster", (130, 180))
-    for column in range(10):
-        place(canvas, wall, -576 + column * 128, 282)
+    for column in range(18):
+        place(canvas, wall, -1088 + column * 128, 282)
 
-    place(canvas, load("window", (190, 174)), -355, 275)
-    place(canvas, load("window", (190, 174)), 340, 275)
-    place(canvas, load("door", (144, 208)), -54, 260)
-    place(canvas, load("bookshelf", (126, 152)), 550, 266)
-    place(canvas, load("beam_horizontal", (1280, 50)), 0, 183)
-    place(canvas, load("beam_horizontal", (1280, 62)), 0, 350)
-    for x in (-570, -310, 0, 310, 570):
+    place(canvas, load("window", (190, 174)), -850, 275)
+    place(canvas, load("window", (190, 174)), -160, 275)
+    place(canvas, load("window", (190, 174)), 610, 275)
+    place(canvas, load("door", (144, 208)), 1020, 260)
+    place(canvas, load("bookshelf", (126, 152)), -610, 266)
+    place(canvas, load("beam_horizontal", (2304, 50)), 0, 183)
+    place(canvas, load("beam_horizontal", (2304, 62)), 0, 350)
+    for x in (-1120, -760, -384, 0, 384, 760, 1120):
         place(canvas, load("beam_vertical", (48, 190)), x, 275)
 
-    place(canvas, load("rug_red", (390, 238)), -325, -154)
-    place(canvas, load("rug_teal", (390, 238)), 346, -135)
+    place(canvas, load("rug_red", (300, 166)), -760, -178)
+    place(canvas, load("rug_teal", (330, 176)), -120, -166)
 
     objects = [
-        ("plant", 38, 72, (108, 98)),
-        ("potion_cabinet", 178, 66, (150, 142)),
-        ("kitchen", 468, 60, (274, 264)),
-        ("bed", -488, -2, (218, 224)),
-        ("firewood", 292, -18, (124, 101)),
-        ("table", -250, -115, (312, 209)),
-        ("player", -330, -150, (112, 112)),
-        ("fireplace", 438, -196, (210, 254)),
+        ("plant", 80, 52, (86, 125)),
+        ("potion_cabinet", 220, 60, (132, 154)),
+        ("kitchen", 570, 52, (244, 235)),
+        ("bed", -940, -34, (190, 195)),
+        ("firewood", 690, -52, (112, 91)),
+        ("table", -150, -130, (270, 181)),
+        ("player", -650, -160, (92, 184)),
+        ("fireplace", 860, -178, (190, 222)),
     ]
 
     for name, x, baseline_y, size in sorted(objects, key=lambda item: item[2], reverse=True):
         place_baseline(canvas, shadow(round(size[0] * 0.72), max(18, round(size[1] * 0.14))), x, baseline_y + 1)
         if name == "player":
-            image = Image.open(ROOT / "assets" / "textures" / "characters" / "player_idle.png").convert("RGBA")
-            image = image.resize(size, Image.Resampling.NEAREST)
+            image = Image.open(ROOT / "assets" / "resources" / "characters" / "trainer_idle.png").convert("RGBA")
+            image = image.resize(size, Image.Resampling.LANCZOS)
         else:
             image = load(name, size)
         place_baseline(canvas, image, x, baseline_y)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     canvas.convert("RGB").save(OUT, quality=95)
+    player_center = round(CANVAS[0] * 0.5 - 650)
+    viewport_left = max(0, min(CANVAS[0] - 1280, player_center - 640))
+    canvas.crop((viewport_left, 0, viewport_left + 1280, 720)).convert("RGB").save(VIEW_OUT, quality=95)
     print(OUT)
+    print(VIEW_OUT)
 
 
 if __name__ == "__main__":

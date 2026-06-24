@@ -61,6 +61,8 @@ export class SceneBootstrap extends Component {
     public dialogueBox: SpriteFrame | null = null;
 
     private ySortRoot: Node | null = null;
+    private homeMapRoot: Node | null = null;
+    private homePlayer: Node | null = null;
     private readonly homeFrames = new Map<string, SpriteFrame>();
 
     public start(): void {
@@ -113,13 +115,22 @@ export class SceneBootstrap extends Component {
         startButton.addComponent(TitleMenuController).startScene = 'HomeScene';
     }
 
-    public lateUpdate(): void {
-        if (!this.ySortRoot) {
-            return;
+    public lateUpdate(deltaTime: number): void {
+        if (this.ySortRoot) {
+            const sorted = [...this.ySortRoot.children].sort((a, b) => b.position.y - a.position.y);
+            sorted.forEach((child, index) => child.setSiblingIndex(index));
         }
 
-        const sorted = [...this.ySortRoot.children].sort((a, b) => b.position.y - a.position.y);
-        sorted.forEach((child, index) => child.setSiblingIndex(index));
+        if (this.homeMapRoot && this.homePlayer) {
+            const targetX = Math.max(-512, Math.min(512, -this.homePlayer.position.x));
+            const current = this.homeMapRoot.position;
+            const smoothing = Math.min(1, deltaTime * 5);
+            this.homeMapRoot.setPosition(
+                current.x + (targetX - current.x) * smoothing,
+                current.y,
+                current.z,
+            );
+        }
     }
 
     private loadHomeAssets(root: Node): void {
@@ -132,15 +143,27 @@ export class SceneBootstrap extends Component {
             }
 
             frames.forEach((frame) => this.homeFrames.set(frame.name, frame));
-            this.buildHome(root);
+            resources.loadDir('characters', SpriteFrame, (characterError, characterFrames) => {
+                if (characterError) {
+                    console.warn('[HomeScene] Trainer sprites unavailable; using configured player.', characterError);
+                } else {
+                    this.playerIdle = characterFrames.find((frame) => frame.name === 'trainer_idle') ?? this.playerIdle;
+                    this.playerWalkFrames = [0, 1, 2, 3]
+                        .map((index) => characterFrames.find((frame) => frame.name === `trainer_walk_${index}`))
+                        .filter((frame): frame is SpriteFrame => Boolean(frame));
+                }
+                this.buildHome(root);
+            });
         });
     }
 
     private buildHome(root: Node): void {
-        const ground = this.createNode('Home_GroundTiles', root, 0, 0);
-        const architecture = this.createNode('Home_Architecture', root, 0, 0);
-        const world = this.createNode('Home_YSortedWorld', root, 0, 0);
-        const foreground = this.createNode('Home_Foreground', root, 0, 0);
+        const map = this.createNode('Home_ScrollingMap', root, 0, 0);
+        const ground = this.createNode('Home_GroundTiles', map, 0, 0);
+        const architecture = this.createNode('Home_Architecture', map, 0, 0);
+        const world = this.createNode('Home_YSortedWorld', map, 0, 0);
+        const foreground = this.createNode('Home_Foreground', map, 0, 0);
+        this.homeMapRoot = map;
         this.ySortRoot = world;
 
         this.createHomeFloor(ground);
@@ -148,13 +171,12 @@ export class SceneBootstrap extends Component {
         this.createHomeRugs(ground);
         this.createHomeFurniture(world);
 
-        this.createPlayer(world, -330, -150, -548, 548, -300, 116, true);
-        this.createSolidCollider('HomeLeftWall', world, -620, -60, 46, 560);
-        this.createSolidCollider('HomeRightWall', world, 620, -60, 46, 560);
-        this.createSolidCollider('HomeBackWallLeft', world, -380, 146, 460, 44);
-        this.createSolidCollider('HomeBackWallRight', world, 330, 146, 570, 44);
-        this.createSolidCollider('HomeFrontWall', world, 0, -332, 1280, 44);
-        this.createSceneTrigger('DoorTrigger', world, -54, 170, 130, 90, 'VillageScene');
+        this.homePlayer = this.createPlayer(world, -650, -160, -1080, 1080, -278, 34, true);
+        this.createSolidCollider('HomeLeftWall', world, -1150, -60, 46, 560);
+        this.createSolidCollider('HomeRightWall', world, 1150, -60, 46, 560);
+        this.createSolidCollider('HomeBackWall', world, 0, 128, 2304, 44);
+        this.createSolidCollider('HomeFrontWall', world, 0, -332, 2304, 44);
+        this.createSceneTrigger('DoorTrigger', world, 1080, -100, 100, 300, 'VillageScene');
     }
 
     private buildVillage(root: Node): void {
@@ -222,8 +244,11 @@ export class SceneBootstrap extends Component {
     ): Node {
         const player = this.createNode('Player', parent, x, y);
         player.addComponent(UITransform).setContentSize(40, 30);
-        this.createEllipse('PlayerShadow', player, 0, 8, 48, 20, new Color(22, 16, 18, 92));
-        this.createSprite('PlayerVisual', player, this.playerIdle, 0, 54, 112, 112);
+        const usesTrainerArt = this.playerIdle?.name === 'trainer_idle';
+        const visualWidth = usesTrainerArt ? 92 : 112;
+        const visualHeight = usesTrainerArt ? 184 : 112;
+        this.createEllipse('PlayerShadow', player, 0, 8, usesTrainerArt ? 58 : 48, 20, new Color(22, 16, 18, 92));
+        this.createSprite('PlayerVisual', player, this.playerIdle, 0, visualHeight * 0.5, visualWidth, visualHeight);
         const body = player.addComponent(RigidBody2D);
         body.type = ERigidBody2DType.Dynamic;
         body.gravityScale = 0;
@@ -246,63 +271,64 @@ export class SceneBootstrap extends Component {
 
     private createHomeFloor(parent: Node): void {
         const tileSize = 128;
-        const columns = 10;
+        const columns = 18;
         const rows = 4;
         const frames = [
-            this.homeFrame('floor_stone_a'),
-            this.homeFrame('floor_stone_b'),
+            this.homeFrame('floor_wood_a'),
+            this.homeFrame('floor_wood_b'),
         ];
 
         for (let row = 0; row < rows; row++) {
             for (let column = 0; column < columns; column++) {
-                const x = -576 + column * tileSize;
+                const x = -1088 + column * tileSize;
                 const y = -270 + row * tileSize;
                 const frame = frames[(column + row * 3) % frames.length];
                 this.createSprite(`GroundTile_${column}_${row}`, parent, frame, x, y, tileSize + 2, tileSize + 2);
             }
         }
 
-        this.createPanel('FloorWarmth', parent, 0, -78, 1280, 512, new Color(91, 48, 23, 28), undefined, 0);
+        this.createPanel('FloorWarmth', parent, 0, -78, 2304, 512, new Color(62, 35, 24, 76), undefined, 0);
     }
 
     private createHomeArchitecture(back: Node, foreground: Node): void {
         const wallFrame = this.homeFrame('wall_plaster');
-        for (let column = 0; column < 10; column++) {
-            this.createSprite(`WallTile_${column}`, back, wallFrame, -576 + column * 128, 282, 130, 180);
+        for (let column = 0; column < 18; column++) {
+            this.createSprite(`WallTile_${column}`, back, wallFrame, -1088 + column * 128, 282, 130, 180);
         }
 
-        this.createSprite('BackWallBeam', foreground, this.homeFrame('beam_horizontal'), 0, 183, 1280, 50);
-        this.createSprite('CeilingBeam', foreground, this.homeFrame('beam_horizontal'), 0, 350, 1280, 62);
-        [-570, -310, 0, 310, 570].forEach((x, index) => {
+        this.createSprite('BackWallBeam', foreground, this.homeFrame('beam_horizontal'), 0, 183, 2304, 50);
+        this.createSprite('CeilingBeam', foreground, this.homeFrame('beam_horizontal'), 0, 350, 2304, 62);
+        [-1120, -760, -384, 0, 384, 760, 1120].forEach((x, index) => {
             this.createSprite(`WallPost_${index}`, foreground, this.homeFrame('beam_vertical'), x, 275, 48, 190);
         });
 
-        this.createSprite('WindowLeft', back, this.homeFrame('window'), -355, 275, 190, 174);
-        this.createSprite('WindowRight', back, this.homeFrame('window'), 340, 275, 190, 174);
-        this.createSprite('HouseDoor', back, this.homeFrame('door'), -54, 260, 144, 208);
-        this.createSprite('WallBooks', back, this.homeFrame('bookshelf'), 550, 266, 126, 152);
+        this.createSprite('WindowBedroom', back, this.homeFrame('window'), -850, 275, 190, 174);
+        this.createSprite('WindowDining', back, this.homeFrame('window'), -160, 275, 190, 174);
+        this.createSprite('WindowKitchen', back, this.homeFrame('window'), 610, 275, 190, 174);
+        this.createSprite('HouseDoor', back, this.homeFrame('door'), 1020, 260, 144, 208);
+        this.createSprite('WallBooks', back, this.homeFrame('bookshelf'), -610, 266, 126, 152);
     }
 
     private createHomeRugs(parent: Node): void {
-        this.createSprite('RugRed', parent, this.homeFrame('rug_red'), -325, -154, 390, 238);
-        this.createSprite('RugTeal', parent, this.homeFrame('rug_teal'), 346, -135, 390, 238);
+        this.createSprite('BedroomRug', parent, this.homeFrame('rug_red'), -760, -178, 300, 166);
+        this.createSprite('DiningRug', parent, this.homeFrame('rug_teal'), -120, -166, 330, 176);
     }
 
     private createHomeFurniture(parent: Node): void {
-        this.createWorldSprite('Bed', parent, this.homeFrame('bed'), -488, -2, 218, 224);
-        this.createWorldSprite('DiningTable', parent, this.homeFrame('table'), -250, -115, 312, 209);
-        this.createWorldSprite('PotionCabinet', parent, this.homeFrame('potion_cabinet'), 178, 66, 150, 142);
-        this.createWorldSprite('KitchenCounter', parent, this.homeFrame('kitchen'), 468, 60, 274, 264);
-        this.createWorldSprite('Fireplace', parent, this.homeFrame('fireplace'), 438, -196, 210, 254);
-        this.createWorldSprite('IndoorPlant', parent, this.homeFrame('plant'), 38, 72, 108, 98);
-        this.createWorldSprite('Firewood', parent, this.homeFrame('firewood'), 292, -18, 124, 101);
+        this.createWorldSprite('Bed', parent, this.homeFrame('bed'), -940, -34, 190, 195);
+        this.createWorldSprite('DiningTable', parent, this.homeFrame('table'), -150, -130, 270, 181);
+        this.createWorldSprite('PotionCabinet', parent, this.homeFrame('potion_cabinet'), 220, 60, 132, 154);
+        this.createWorldSprite('KitchenCounter', parent, this.homeFrame('kitchen'), 570, 52, 244, 235);
+        this.createWorldSprite('Fireplace', parent, this.homeFrame('fireplace'), 860, -178, 190, 222);
+        this.createWorldSprite('IndoorPlant', parent, this.homeFrame('plant'), 80, 52, 86, 125);
+        this.createWorldSprite('Firewood', parent, this.homeFrame('firewood'), 690, -52, 112, 91);
 
-        this.createSolidCollider('BedCollider', parent, -488, -14, 196, 88);
-        this.createSolidCollider('TableCollider', parent, -250, -126, 250, 72);
-        this.createSolidCollider('ShelfCollider', parent, 178, 56, 118, 58);
-        this.createSolidCollider('KitchenCollider', parent, 468, 48, 246, 66);
-        this.createSolidCollider('FireplaceCollider', parent, 438, -208, 178, 82);
-        this.createSolidCollider('FirewoodCollider', parent, 292, -30, 102, 48);
+        this.createSolidCollider('BedCollider', parent, -940, -46, 170, 76);
+        this.createSolidCollider('TableCollider', parent, -150, -142, 222, 66);
+        this.createSolidCollider('ShelfCollider', parent, 220, 50, 104, 58);
+        this.createSolidCollider('KitchenCollider', parent, 570, 40, 218, 66);
+        this.createSolidCollider('FireplaceCollider', parent, 860, -190, 164, 78);
+        this.createSolidCollider('FirewoodCollider', parent, 690, -64, 94, 44);
     }
 
     private homeFrame(name: string): SpriteFrame | null {
